@@ -1,0 +1,47 @@
+# ============================================================================
+# 强制统一换行符：源码一律 LF，Windows 脚本保留 CRLF
+# 用途：本项目在 Windows 上开发、在 Ubuntu 上运行，
+#      不统一换行符会导致 shell 脚本无法执行（bash: $'\r': command not found）
+# ============================================================================
+
+# 默认行为
+* text=auto eol=lf
+
+# 源码与配置：一律 LF
+*.py     text eol=lf
+*.sh     text eol=lf
+*.xml    text eol=lf
+*.xacro  text eol=lf
+*.urdf   text eol=lf
+*.yaml   text eol=lf
+*.yml    text eol=lf
+*.md     text eol=lf
+*.txt    text eol=lf
+*.launch text eol=lf
+*.rviz   text eol=lf
+CMakeLists.txt text eol=lf
+Makefile text eol=lf
+
+# C 源码
+*.c      text eol=lf
+*.h      text eol=lf
+*.s      text eol=lf
+
+# Windows 专用脚本保留 CRLF
+*.bat    text eol=crlf
+*.cmd    text eol=crlf
+*.ps1    text eol=crlf
+
+# 二进制文件：不做换行转换
+*.STL    binary
+*.stl    binary
+*.dxf    binary
+*.png    binary
+*.jpg    binary
+*.pdf    binary
+*.docx   binary
+*.xlsx   binary
+*.zip    binary
+*.elf    binary
+*.bin    binary
+*.hex    binary

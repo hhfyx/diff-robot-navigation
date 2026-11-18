@@ -1,0 +1,46 @@
+// ===========================================================================
+// ST-Link 调试配置（VS Code + Cortex-Debug 扩展使用）
+//
+// 用法：
+//   1. VS Code 装扩展 "Cortex-Debug"（marus25.cortex-debug）
+//   2. 装 ST-Link 驱动与 OpenOCD（PlatformIO 会自带）
+//   3. F5 启动调试，可在 chassis_tick() 里打断点看实时变量
+//
+// 这个配置对排查"为什么 PID 不收敛""编码器读数为什么跳变"非常有用：
+//   - 在 watch 里加 pid_l / pid_r，能直接看到 output / error / integral
+//   - 在 st.v_left 上打断点，能确认测速是否正常
+// ===========================================================================
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Debug (ST-Link)",
+            "type": "cortex-debug",
+            "request": "launch",
+            "cwd": "${workspaceFolder}",
+            "executable": "${workspaceFolder}/build/firmware.elf",
+            "servertype": "openocd",
+            "device": "STM32F103C8",
+            "configFiles": [
+                "interface/stlink.cfg",
+                "target/stm32f1x.cfg"
+            ],
+            "runToEntryPoint": "main",
+            "svdFile": "${workspaceFolder}/STM32F103.svd",
+            "showDevDebugOutput": "none"
+        },
+        {
+            "name": "Attach (ST-Link)",
+            "type": "cortex-debug",
+            "request": "attach",
+            "cwd": "${workspaceFolder}",
+            "executable": "${workspaceFolder}/build/firmware.elf",
+            "servertype": "openocd",
+            "device": "STM32F103C8",
+            "configFiles": [
+                "interface/stlink.cfg",
+                "target/stm32f1x.cfg"
+            ]
+        }
+    ]
+}

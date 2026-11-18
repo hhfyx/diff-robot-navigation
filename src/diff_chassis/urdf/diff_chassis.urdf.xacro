@@ -1,0 +1,370 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  两轮差速移动机器人 URDF (xacro)
+  由 SolidWorks 导出的 diff_chassis.orig.urdf 迁移而来，主要改动：
+    1. 新增 base_footprint（地面投影坐标系），z 相对 base_link = -0.063 m
+    2. 为两个 continuous 关节补 limit 与 dynamics（阻尼/摩擦）
+    3. 新增纯几何 collision（原模型用高面数 STL，仿真很慢）
+    4. 新增 Gazebo 差速驱动插件与轮地摩擦参数
+    5. 材质定义（原模型全白）
+    6. 相机连杆占位（待标定后填实测值）
+
+  坐标约定：base_link 原点位于驱动轮轴心，距地面 0.063 m（轮半径）
+-->
+<robot name="diff_chassis" xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <!-- ==================== 可标定参数 ====================
+       这些值必须实测后修改。当前值来源：
+         wheel_radius / separation：三维模型网格实测
+         其余：差值推导
+       标定方法见 firmware/README.md 第 4 章
+  -->
+  <xacro:property name="wheel_radius"     value="0.063"/>   <!-- 标称 125mm 轮，网格 126mm -->
+  <xacro:property name="wheel_separation" value="0.4223"/>  <!-- 网格实测；固件默认 0.330 需修正 -->
+  <xacro:property name="wheel_width"      value="0.0455"/>
+  <xacro:property name="base_mass"        value="2.613"/>
+  <xacro:property name="wheel_mass"       value="0.2626"/>
+
+  <!-- 传感器安装位置（来自 URDF 关节 origin） -->
+  <xacro:property name="lidar_x"   value="0.18861"/>
+  <xacro:property name="lidar_y"   value="0.010699"/>
+  <xacro:property name="lidar_z"   value="0.27193"/>
+  <xacro:property name="imu_z"     value="0.06025"/>
+  <!-- 相机：待实际安装后标定，此处为占位初值 -->
+  <xacro:property name="camera_x"  value="0.19"/>
+  <xacro:property name="camera_y"  value="0.0"/>
+  <xacro:property name="camera_z"  value="0.257"/>
+  <xacro:property name="camera_pitch" value="-0.349"/>  <!-- -20° -->
+
+  <xacro:arg name="use_gazebo" default="false"/>
+  <xacro:arg name="use_gui"    default="true"/>
+
+  <!-- ==================== 材质 ==================== -->
+  <material name="white">
+    <color rgba="0.9 0.9 0.9 1.0"/>
+  </material>
+  <material name="dark_gray">
+    <color rgba="0.25 0.25 0.28 1.0"/>
+  </material>
+  <material name="red">
+    <color rgba="0.8 0.15 0.15 1.0"/>
+  </material>
+  <material name="aluminum">
+    <color rgba="0.72 0.72 0.75 1.0"/>
+  </material>
+
+  <!-- ==================== base_footprint ==================== -->
+  <link name="base_footprint"/>
+
+  <joint name="base_footprint_joint" type="fixed">
+    <origin xyz="0 0 ${-wheel_radius}" rpy="0 0 0"/>
+    <parent link="base_footprint"/>
+    <child  link="base_link"/>
+  </joint>
+
+  <!-- ==================== base_link ==================== -->
+  <link name="base_link">
+    <inertial>
+      <origin xyz="-1.1656E-05 1.8399E-04 0.22279" rpy="0 0 0"/>
+      <mass value="${base_mass}"/>
+      <inertia ixx="0.026688" ixy="6.0183E-09" ixz="-1.6664E-16"
+               iyy="0.027813" iyz="2.5999E-16" izz="0.052627"/>
+    </inertial>
+
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="package://diff_chassis_description/meshes/base_link.STL"/>
+      </geometry>
+      <material name="aluminum"/>
+    </visual>
+
+    <!-- 碰撞用简化盒体：车体外廓 440x440，从 z=-0.02 到 0.446 -->
+    <collision>
+      <origin xyz="0 0 0.213" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.440 0.440 0.466"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <!-- ==================== 驱动轮宏 ==================== -->
+  <xacro:macro name="wheel" params="side sign">
+    <link name="${side}_wheel_link">
+      <inertial>
+        <origin xyz="0 ${sign*0.21082} -9.993E-06" rpy="0 0 0"/>
+        <mass value="${wheel_mass}"/>
+        <inertia ixx="0.00037352" ixy="0" ixz="0"
+                 iyy="0.00067104" iyz="0" izz="0.0003735"/>
+      </inertial>
+
+      <visual>
+        <origin xyz="0 0 0" rpy="0 0 0"/>
+        <geometry>
+          <mesh filename="package://diff_chassis_description/meshes/${side}_wheel_link.STL"/>
+        </geometry>
+        <material name="dark_gray"/>
+      </visual>
+
+      <!-- 碰撞用圆柱，比 STL 快得多 -->
+      <collision>
+        <origin xyz="0 ${sign*0.21082} 0" rpy="1.5708 0 0"/>
+        <geometry>
+          <cylinder radius="${wheel_radius}" length="${wheel_width}"/>
+        </geometry>
+      </collision>
+    </link>
+
+    <!--
+      注意：右轮 axis 为 (0,-1,0)，左轮为 (0,1,0)
+      这是 SolidWorks 导出的结果，本身可行，但 diff_drive_controller
+      默认假定两轮同向。若发现给正速度时两轮反向转，
+      在 ros2_control 硬件接口层对右轮取反，不要改这里。
+    -->
+    <joint name="${side}_wheel_joint" type="continuous">
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <parent link="base_link"/>
+      <child  link="${side}_wheel_link"/>
+      <axis xyz="0 ${sign} 0"/>
+      <limit effort="10.0" velocity="10.0"/>
+      <dynamics damping="0.1" friction="0.0"/>
+    </joint>
+
+    <xacro:if value="$(arg use_gazebo)">
+      <gazebo reference="${side}_wheel_link">
+        <mu1>0.8</mu1>
+        <mu2>0.8</mu2>
+        <kp>1000000.0</kp>
+        <kd>1.0</kd>
+        <minDepth>0.001</minDepth>
+        <maxVel>0.1</maxVel>
+        <material>Gazebo/DarkGrey</material>
+      </gazebo>
+    </xacro:if>
+  </xacro:macro>
+
+  <xacro:wheel side="left"  sign="1"/>
+  <xacro:wheel side="right" sign="-1"/>
+
+  <!-- ==================== 万向支撑轮（纯视觉，无物理） ==================== -->
+  <link name="caster_front_link">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <sphere radius="0.0315"/>
+      </geometry>
+      <material name="dark_gray"/>
+    </visual>
+    <inertial>
+      <mass value="0.05"/>
+      <inertia ixx="1e-5" ixy="0" ixz="0" iyy="1e-5" iyz="0" izz="1e-5"/>
+    </inertial>
+  </link>
+  <joint name="caster_front_joint" type="fixed">
+    <origin xyz="0.1965 0 -0.0315" rpy="0 0 0"/>
+    <parent link="base_link"/>
+    <child  link="caster_front_link"/>
+  </joint>
+
+  <link name="caster_rear_link">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <sphere radius="0.0315"/>
+      </geometry>
+      <material name="dark_gray"/>
+    </visual>
+    <inertial>
+      <mass value="0.05"/>
+      <inertia ixx="1e-5" ixy="0" ixz="0" iyy="1e-5" iyz="0" izz="1e-5"/>
+    </inertial>
+  </link>
+  <joint name="caster_rear_joint" type="fixed">
+    <origin xyz="-0.1965 0 -0.0315" rpy="0 0 0"/>
+    <parent link="base_link"/>
+    <child  link="caster_rear_link"/>
+  </joint>
+
+  <!-- ==================== 激光雷达 ==================== -->
+  <link name="lidar_link">
+    <inertial>
+      <origin xyz="-0.0275 -0.0095 -0.0106" rpy="0 0 0"/>
+      <mass value="0.0435"/>
+      <inertia ixx="1.644E-05" ixy="7.0416E-07" ixz="-1.0864E-07"
+               iyy="1.4426E-05" iyz="-5.4088E-08" izz="2.939E-05"/>
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="package://diff_chassis_description/meshes/lidar_link.STL"/>
+      </geometry>
+      <material name="dark_gray"/>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <cylinder radius="0.04" length="0.04"/>
+      </geometry>
+    </collision>
+  </link>
+  <joint name="lidar_joint" type="fixed">
+    <origin xyz="${lidar_x} ${lidar_y} ${lidar_z}" rpy="0 0 -0.00015987"/>
+    <parent link="base_link"/>
+    <child  link="lidar_link"/>
+  </joint>
+
+  <!-- ==================== IMU ==================== -->
+  <link name="imu_link">
+    <inertial>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <mass value="0.0085"/>
+      <inertia ixx="5.58E-07" ixy="0" ixz="0"
+               iyy="5.57E-07" iyz="0" izz="8.20E-07"/>
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.0245 0.0245 0.0145"/>
+      </geometry>
+      <material name="dark_gray"/>
+    </visual>
+  </link>
+  <joint name="imu_joint" type="fixed">
+    <origin xyz="0 0 ${imu_z}" rpy="0 0 0"/>
+    <parent link="base_link"/>
+    <child  link="imu_link"/>
+  </joint>
+
+  <!-- ==================== RGB 相机（占位，待标定） ==================== -->
+  <link name="camera_link">
+    <inertial>
+      <mass value="0.05"/>
+      <inertia ixx="1e-5" ixy="0" ixz="0" iyy="1e-5" iyz="0" izz="1e-5"/>
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.03 0.09 0.025"/>
+      </geometry>
+      <material name="dark_gray"/>
+    </visual>
+  </link>
+  <joint name="camera_joint" type="fixed">
+    <origin xyz="${camera_x} ${camera_y} ${camera_z}" rpy="0 ${camera_pitch} 0"/>
+    <parent link="base_link"/>
+    <child  link="camera_link"/>
+  </joint>
+
+  <!-- 光学坐标系：z 朝前、x 朝右、y 朝下（ROS 光学惯例） -->
+  <link name="camera_optical_frame"/>
+  <joint name="camera_optical_joint" type="fixed">
+    <origin xyz="0 0 0" rpy="-1.5708 0 -1.5708"/>
+    <parent link="camera_link"/>
+    <child  link="camera_optical_frame"/>
+  </joint>
+
+  <!-- ==================== Gazebo 差速驱动 ==================== -->
+  <xacro:if value="$(arg use_gazebo)">
+    <gazebo>
+      <plugin filename="libgazebo_ros_diff_drive.so" name="diff_drive">
+        <ros>
+          <namespace>/</namespace>
+        </ros>
+        <update_rate>50</update_rate>
+        <left_joint>left_wheel_joint</left_joint>
+        <right_joint>right_wheel_joint</right_joint>
+        <wheel_separation>${wheel_separation}</wheel_separation>
+        <wheel_diameter>${2*wheel_radius}</wheel_diameter>
+        <max_wheel_torque>10</max_wheel_torque>
+        <max_wheel_acceleration>2.0</max_wheel_acceleration>
+        <command_topic>cmd_vel</command_topic>
+        <odometry_topic>odom</odometry_topic>
+        <odometry_frame>odom</odometry_frame>
+        <robot_base_frame>base_footprint</robot_base_frame>
+        <!-- 关键：不要发布 odom TF，交给 EKF -->
+        <publish_odom_tf>false</publish_odom_tf>
+        <publish_wheel_tf>false</publish_wheel_tf>
+      </plugin>
+
+      <plugin filename="libgazebo_ros_p3d.so" name="p3d">
+        <ros><namespace>/</namespace></ros>
+        <body_name>base_link</body_name>
+        <frame_name>odom</frame_name>
+        <update_rate>50</update_rate>
+        <gaussian_noise>0.001</gaussian_noise>
+        <topic_name>ground_truth/odom</topic_name>
+      </plugin>
+    </gazebo>
+
+    <!-- 激光雷达传感器 -->
+    <gazebo reference="lidar_link">
+      <sensor name="lidar" type="ray">
+        <always_on>true</always_on>
+        <update_rate>10</update_rate>
+        <visualize>true</visualize>
+        <ray>
+          <scan>
+            <horizontal>
+              <samples>720</samples>
+              <resolution>1.0</resolution>
+              <min_angle>-3.14159</min_angle>
+              <max_angle>3.14159</max_angle>
+            </horizontal>
+          </scan>
+          <range>
+            <min>0.15</min>
+            <max>12.0</max>
+            <resolution>0.01</resolution>
+          </range>
+          <!-- 按 RPLIDAR A2 实测特性注入噪声 -->
+          <noise>
+            <type>gaussian</type>
+            <mean>0.0</mean>
+            <stddev>0.015</stddev>
+          </noise>
+        </ray>
+        <plugin filename="libgazebo_ros_ray_sensor.so" name="lidar_pub">
+          <ros>
+            <namespace>/</namespace>
+            <remapping>~/out:=scan</remapping>
+          </ros>
+          <output_type>sensor_msgs/LaserScan</output_type>
+          <frame_name>lidar_link</frame_name>
+        </plugin>
+      </sensor>
+    </gazebo>
+
+    <!-- IMU 传感器 -->
+    <gazebo reference="imu_link">
+      <sensor name="imu" type="imu">
+        <always_on>true</always_on>
+        <update_rate>100</update_rate>
+        <imu>
+          <angular_velocity>
+            <x><noise type="gaussian"><mean>0</mean><stddev>0.002</stddev></noise></x>
+            <y><noise type="gaussian"><mean>0</mean><stddev>0.002</stddev></noise></y>
+            <z><noise type="gaussian"><mean>0</mean><stddev>0.002</stddev></noise></z>
+          </angular_velocity>
+          <linear_acceleration>
+            <x><noise type="gaussian"><mean>0</mean><stddev>0.02</stddev></noise></x>
+            <y><noise type="gaussian"><mean>0</mean><stddev>0.02</stddev></noise></y>
+            <z><noise type="gaussian"><mean>0</mean><stddev>0.02</stddev></noise></z>
+          </linear_acceleration>
+        </imu>
+        <plugin filename="libgazebo_ros_imu_sensor.so" name="imu_pub">
+          <ros>
+            <namespace>/</namespace>
+            <remapping>~/out:=imu/data</remapping>
+          </ros>
+          <initial_orientation_as_reference>false</initial_orientation_as_reference>
+          <frame_name>imu_link</frame_name>
+        </plugin>
+      </sensor>
+    </gazebo>
+
+    <gazebo reference="base_link">
+      <material>Gazebo/Grey</material>
+    </gazebo>
+  </xacro:if>
+
+</robot>

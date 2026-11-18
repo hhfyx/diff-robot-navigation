@@ -1,0 +1,83 @@
+# ============================================================================
+# Git 忽略规则
+# ============================================================================
+
+# ---------- ROS 2 / colcon 构建产物 ----------
+build/
+install/
+log/
+*.egg-info/
+.pytest_cache/
+
+# ---------- Python ----------
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv/
+
+# ---------- C / C++ ----------
+*.o
+*.obj
+*.d
+*.elf
+*.hex
+*.bin
+*.map
+*.lst
+*.su
+
+# ---------- STM32 / PlatformIO 固件构建产物 ----------
+firmware/.pio/
+firmware/build/
+firmware/Debug/
+firmware/Release/
+.firmware-build/
+
+# ---------- 打包的第三方工具链（体积大，不入库）----------
+.toolchain/
+*.zip
+
+# ---------- 地图与数据（体积大，按需单独存）----------
+*.pgm
+*.db3
+*.mcap
+bags/
+maps/*.pgm
+experiments/
+
+# ---------- 编辑器 / IDE ----------
+.vscode/*
+!.vscode/launch.json
+!.vscode/tasks.json
+!.vscode/extensions.json
+.idea/
+*.swp
+*.swo
+*~
+.cproject
+.project
+.settings/
+
+# ---------- 操作系统 ----------
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ---------- 临时文件 ----------
+*.tmp
+*.bak
+*.log
+!firmware/export.log
+.dsh-office-*/
+.dsh-doc-*/
+.dsh-org-*/
+
+# ---------- 敏感信息 ----------
+*.pem
+*.key
+.env
+.secrets
