@@ -1,0 +1,18 @@
+<library path="diffbot_control">
+  <class
+    name="diffbot_control/DiffBotSystem"
+    type="diffbot_control::DiffBotSystem"
+    base_class_type="gazebo_ros2_control::GazeboSystemInterface">
+    <description>
+      仿真硬件接口：Gazebo 关节读写 + 右轮符号取反（前进为正的统一约定）。
+    </description>
+  </class>
+  <class
+    name="diffbot_control/DiffBotSerialSystem"
+    type="diffbot_control::DiffBotSerialSystem"
+    base_class_type="hardware_interface::SystemInterface">
+    <description>
+      实车串口硬件接口骨架，未实现串口协议，仅用于明确接口边界。
+    </description>
+  </class>
+</library>

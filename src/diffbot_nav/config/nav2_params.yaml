@@ -1,0 +1,346 @@
+# Nav2 参数：自制两轮差速机器人（车体 440x440 mm，轮距 0.4223 m，RPLIDAR A2 类 12 m/10 Hz）
+#
+# 数值来源标注（见每段注释）：
+#   [规格书] docs/技术规格书.md
+#   [实测]   本仓库 URDF / 建图轮次实测
+#   [估值]   按场地与环境调的保守值，未实测标定
+#
+# 坐标系铁律：odom -> base_footprint 由 EKF 独占；map -> odom 由 AMCL 独占。
+# 底盘子话题：订阅 /cmd_vel，发布 /wheel/odom；融合后 /odometry/filtered 给 Nav2。
+
+amcl:
+  ros__parameters:
+    use_sim_time: True
+    # 运动模型噪声：未做轮滑标定，取 AMCL 常规保守值 [估值]
+    alpha1: 0.2
+    alpha2: 0.2
+    alpha3: 0.2
+    alpha4: 0.2
+    alpha5: 0.2
+    base_frame_id: "base_footprint"       # [规格书] 基座坐标系
+    odom_frame_id: "odom"
+    global_frame_id: "map"
+    scan_topic: scan
+    map_topic: map
+    robot_model_type: "nav2_amcl::DifferentialMotionModel"
+    # 激光：量程 12 m 是规格书；最小 0.45 m 与建图一致，
+    # 用于挡掉车体后立柱在雷达上的自击点（实测立柱距雷达 0.31-0.35 m）[实测]
+    laser_model_type: "likelihood_field"
+    laser_min_range: 0.45
+    laser_max_range: 12.0
+    max_beams: 120
+    laser_likelihood_max_dist: 2.0
+    sigma_hit: 0.2
+    z_hit: 0.5
+    z_short: 0.05
+    z_max: 0.05
+    z_rand: 0.5
+    lambda_short: 0.1
+    do_beamskip: false
+    beam_skip_distance: 0.5
+    beam_skip_threshold: 0.3
+    beam_skip_error_threshold: 0.9
+    min_particles: 1000
+    max_particles: 5000
+    pf_err: 0.05
+    pf_z: 0.99
+    resample_interval: 1
+    recovery_alpha_slow: 0.0
+    recovery_alpha_fast: 0.0
+    # 雷达 10 Hz、场地仅 8x6 m。实测发现 EKF 静止时 /odometry/filtered
+    # 以约 6.4 mm/s 漂移；若阈值取 0.05，静止时 AMCL 迟迟不做激光更新，
+    # map->odom 会跟着漂（67 s 累积 0.43 m）。降到 0.01 后静止 15 s 内
+    # 估计稳定在真值 0.11 m 内，故取 0.01/0.01 [实测]
+    update_min_d: 0.01
+    update_min_a: 0.01
+    transform_tolerance: 0.5
+    tf_broadcast: true
+    save_pose_rate: 0.5
+    # 仿真出生点即世界 (0,0,yaw=0)，地图由同一世界建图得到，
+    # 因此直接用 (0,0,0) 作为先验，不依赖 RViz 手动给初始位姿 [实测]
+    set_initial_pose: true
+    always_reset_initial_pose: false
+    first_map_only: false
+    initial_pose:
+      x: 0.0
+      y: 0.0
+      z: 0.0
+      yaw: 0.0
+
+bt_navigator:
+  ros__parameters:
+    use_sim_time: True
+    global_frame: map
+    robot_base_frame: base_footprint
+    odom_topic: /odometry/filtered           # [规格书] EKF 输出
+    bt_loop_duration: 10
+    default_server_timeout: 20
+    wait_for_service_timeout: 1000
+    transform_tolerance: 0.5
+    # 先用 Nav2 Humble 默认行为树
+    # nav2_bt_navigator/navigate_to_pose_w_replanning_and_recovery.xml：
+    # 1 Hz 重规划 + 计算/跟踪失败时清代价地图 + Spin/Wait/BackUp 兜底。
+    # 差分底盘可直接用：默认树里没有全向平移类动作，BackUp 是直线后退，
+    # Spin 是原地转，均符合差速运动学，故不替换。
+    plugin_lib_names:
+      - nav2_compute_path_to_pose_action_bt_node
+      - nav2_compute_path_through_poses_action_bt_node
+      - nav2_smooth_path_action_bt_node
+      - nav2_follow_path_action_bt_node
+      - nav2_spin_action_bt_node
+      - nav2_wait_action_bt_node
+      - nav2_assisted_teleop_action_bt_node
+      - nav2_back_up_action_bt_node
+      - nav2_drive_on_heading_bt_node
+      - nav2_clear_costmap_service_bt_node
+      - nav2_is_stuck_condition_bt_node
+      - nav2_goal_reached_condition_bt_node
+      - nav2_goal_updated_condition_bt_node
+      - nav2_globally_updated_goal_condition_bt_node
+      - nav2_is_path_valid_condition_bt_node
+      - nav2_initial_pose_received_condition_bt_node
+      - nav2_reinitialize_global_localization_service_bt_node
+      - nav2_rate_controller_bt_node
+      - nav2_distance_controller_bt_node
+      - nav2_speed_controller_bt_node
+      - nav2_truncate_path_action_bt_node
+      - nav2_truncate_path_local_action_bt_node
+      - nav2_goal_updater_node_bt_node
+      - nav2_recovery_node_bt_node
+      - nav2_pipeline_sequence_bt_node
+      - nav2_round_robin_node_bt_node
+      - nav2_transform_available_condition_bt_node
+      - nav2_time_expired_condition_bt_node
+      - nav2_path_expiring_timer_condition
+      - nav2_distance_traveled_condition_bt_node
+      - nav2_single_trigger_bt_node
+      - nav2_goal_updated_controller_bt_node
+      - nav2_is_battery_low_condition_bt_node
+      - nav2_navigate_through_poses_action_bt_node
+      - nav2_navigate_to_pose_action_bt_node
+      - nav2_remove_passed_goals_action_bt_node
+      - nav2_planner_selector_bt_node
+      - nav2_controller_selector_bt_node
+      - nav2_goal_checker_selector_bt_node
+      - nav2_controller_cancel_bt_node
+      - nav2_path_longer_on_approach_bt_node
+      - nav2_wait_cancel_bt_node
+      - nav2_spin_cancel_bt_node
+      - nav2_back_up_cancel_bt_node
+      - nav2_assisted_teleop_cancel_bt_node
+      - nav2_drive_on_heading_cancel_bt_node
+      - nav2_is_battery_charging_condition_bt_node
+
+bt_navigator_navigate_to_pose_rclcpp_node:
+  ros__parameters:
+    use_sim_time: True
+
+bt_navigator_navigate_through_poses_rclcpp_node:
+  ros__parameters:
+    use_sim_time: True
+
+controller_server:
+  ros__parameters:
+    use_sim_time: True
+    # 规格书验收要求局部规划周期 <= 100 ms；20 Hz = 50 ms [规格书]
+    controller_frequency: 20.0
+    min_x_velocity_threshold: 0.001
+    min_y_velocity_threshold: 0.5
+    min_theta_velocity_threshold: 0.001
+    failure_tolerance: 0.3
+    progress_checker_plugin: "progress_checker"
+    goal_checker_plugins: ["general_goal_checker"]
+    controller_plugins: ["FollowPath"]
+
+    progress_checker:
+      plugin: "nav2_controller::SimpleProgressChecker"
+      required_movement_radius: 0.5
+      movement_time_allowance: 15.0
+
+    general_goal_checker:
+      stateful: True
+      plugin: "nav2_controller::SimpleGoalChecker"
+      # 规格书验收：终点位置 <= 10 cm、朝向 <= 10 deg [规格书]
+      # 实测发现容差取 10 deg 时终点朝向误差贴边（9.3~10.1 deg），
+      # 因为控制器一进入容差圈即停；故收紧到 5 deg，给 AMCL 误差留余量 [实测]
+      xy_goal_tolerance: 0.10
+      yaw_goal_tolerance: 0.0873
+
+    # 差分底盘 + 窄道：Regulated Pure Pursuit 比 DWB 更稳、参数少 [估值]
+    FollowPath:
+      plugin: "nav2_regulated_pure_pursuit_controller::RegulatedPurePursuitController"
+      desired_linear_vel: 0.25          # [估值] 固件单轮上限 0.80 m/s 的 31%
+      lookahead_dist: 0.6               # [估值]
+      min_lookahead_dist: 0.4
+      max_lookahead_dist: 0.9
+      lookahead_time: 1.5
+      rotate_to_heading_angular_vel: 0.5
+      transform_tolerance: 0.2
+      use_velocity_scaled_lookahead_dist: false
+      min_approach_linear_velocity: 0.05
+      approach_velocity_scaling_dist: 0.6
+      use_collision_detection: true
+      max_allowed_time_to_collision_up_to_carrot: 1.5
+      use_regulated_linear_velocity_scaling: true
+      use_cost_regulated_linear_velocity_scaling: true
+      regulated_linear_scaling_min_radius: 0.9
+      regulated_linear_scaling_min_speed: 0.10
+      rotate_to_heading_min_angle: 0.785
+      # 角加速度 1.0 rad/s^2：原地起步不甩头 [估值]
+      max_angular_accel: 1.0
+      allow_reversing: false
+      max_robot_pose_search_dist: 10.0
+      # 注：Humble 的 RPP 没有 max_linear_vel / max_angular_vel 参数，
+      # 最终速度/角速度限幅由 velocity_smoother 的 max_velocity 保证。
+
+local_costmap:
+  local_costmap:
+    ros__parameters:
+      update_frequency: 5.0
+      publish_frequency: 2.0
+      global_frame: odom
+      robot_base_frame: base_footprint    # [规格书]
+      use_sim_time: True
+      rolling_window: true
+      # 4x4 m 覆盖车周 + 雷达有效避障范围 [估值]
+      # 注意：costmap 的 width/height 声明为整数，写 4.0 会触发类型异常
+      width: 4
+      height: 4
+      resolution: 0.05
+      # 车体 440x440 mm，必须用矩形 footprint，禁止 robot_radius [规格书]
+      footprint: "[[-0.22, -0.22], [-0.22, 0.22], [0.22, 0.22], [0.22, -0.22]]"
+      footprint_padding: 0.01
+      plugins: ["obstacle_layer", "inflation_layer"]
+      obstacle_layer:
+        plugin: "nav2_costmap_2d::ObstacleLayer"
+        enabled: True
+        observation_sources: scan
+        scan:
+          topic: /scan
+          max_obstacle_height: 2.0
+          clearing: True
+          marking: True
+          data_type: "LaserScan"
+          raytrace_max_range: 4.5
+          raytrace_min_range: 0.45
+          obstacle_max_range: 4.0
+          obstacle_min_range: 0.45
+      inflation_layer:
+        plugin: "nav2_costmap_2d::InflationLayer"
+        # 膨胀半径 0.35 m >= 半对角线 0.311 m，给车体留 4 cm 余量 [估值]
+        inflation_radius: 0.35
+        cost_scaling_factor: 3.0
+      always_send_full_costmap: True
+
+global_costmap:
+  global_costmap:
+    ros__parameters:
+      update_frequency: 1.0
+      publish_frequency: 1.0
+      global_frame: map
+      robot_base_frame: base_footprint    # [规格书]
+      use_sim_time: True
+      resolution: 0.05
+      track_unknown_space: true
+      footprint: "[[-0.22, -0.22], [-0.22, 0.22], [0.22, 0.22], [0.22, -0.22]]"
+      footprint_padding: 0.01
+      plugins: ["static_layer", "obstacle_layer", "inflation_layer"]
+      static_layer:
+        plugin: "nav2_costmap_2d::StaticLayer"
+        map_subscribe_transient_local: True
+      obstacle_layer:
+        plugin: "nav2_costmap_2d::ObstacleLayer"
+        enabled: True
+        observation_sources: scan
+        scan:
+          topic: /scan
+          max_obstacle_height: 2.0
+          clearing: True
+          marking: True
+          data_type: "LaserScan"
+          raytrace_max_range: 4.5
+          raytrace_min_range: 0.45
+          obstacle_max_range: 4.0
+          obstacle_min_range: 0.45
+      inflation_layer:
+        plugin: "nav2_costmap_2d::InflationLayer"
+        inflation_radius: 0.35
+        cost_scaling_factor: 3.0
+      always_send_full_costmap: True
+
+map_server:
+  ros__parameters:
+    use_sim_time: True
+    # yaml_filename 由 nav.launch.py 传入（默认包内 maps/room_map.yaml）
+    yaml_filename: ""
+    topic_name: "map"
+    frame_id: "map"
+
+planner_server:
+  ros__parameters:
+    expected_planner_frequency: 1.0
+    use_sim_time: True
+    planner_plugins: ["GridBased"]
+    GridBased:
+      # 栅格 A*：场地小、静态地图，NavFn 足够且结果稳定 [估值]
+      plugin: "nav2_navfn_planner/NavfnPlanner"
+      tolerance: 0.25
+      use_astar: true
+      allow_unknown: true
+
+smoother_server:
+  ros__parameters:
+    use_sim_time: True
+    smoother_plugins: ["simple_smoother"]
+    simple_smoother:
+      plugin: "nav2_smoother::SimpleSmoother"
+      tolerance: 1.0e-10
+      max_its: 1000
+      do_refinement: True
+
+behavior_server:
+  ros__parameters:
+    use_sim_time: True
+    costmap_topic: local_costmap/costmap_raw
+    footprint_topic: local_costmap/published_footprint
+    cycle_frequency: 10.0
+    behavior_plugins: ["spin", "backup", "drive_on_heading", "assisted_teleop", "wait"]
+    spin:
+      plugin: "nav2_behaviors/Spin"
+    backup:
+      plugin: "nav2_behaviors/BackUp"
+    drive_on_heading:
+      plugin: "nav2_behaviors/DriveOnHeading"
+    wait:
+      plugin: "nav2_behaviors/Wait"
+    assisted_teleop:
+      plugin: "nav2_behaviors/AssistedTeleop"
+    global_frame: odom
+    robot_base_frame: base_footprint
+    transform_tolerance: 0.5
+    simulate_ahead_time: 2.0
+    # 恢复动作限速，避免窄道里 Spin/BackUp 撞墙 [估值]
+    max_rotational_vel: 0.4
+    min_rotational_vel: 0.1
+    rotational_acc_lim: 1.5
+
+robot_state_publisher:
+  ros__parameters:
+    use_sim_time: True
+
+velocity_smoother:
+  ros__parameters:
+    use_sim_time: True
+    smoothing_frequency: 20.0
+    scale_velocities: False
+    feedback: "OPEN_LOOP"
+    # 与 controller / 固件限幅一致：线速度 0.30 m/s、角速度 0.5 rad/s [估值]
+    # 加速度上限取规格书固件值：加速 1.00 m/s^2、减速 2.00 m/s^2 [规格书]
+    max_velocity: [0.30, 0.0, 0.5]
+    min_velocity: [-0.10, 0.0, -0.5]
+    max_accel: [1.0, 0.0, 1.5]
+    max_decel: [-2.0, 0.0, -1.5]
+    odom_topic: /odometry/filtered
+    odom_duration: 0.1
+    deadband_velocity: [0.0, 0.0, 0.0]
+    velocity_timeout: 1.0

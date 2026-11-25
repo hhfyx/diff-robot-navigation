@@ -49,6 +49,9 @@ bags/
 maps/*.pgm
 experiments/
 
+# 例外：导航验收必需的小地图（164x122，约 20 KB），随代码入库
+!src/diffbot_nav/maps/room_map.pgm
+
 # ---------- 编辑器 / IDE ----------
 .vscode/*
 !.vscode/launch.json

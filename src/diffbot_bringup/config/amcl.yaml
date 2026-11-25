@@ -1,0 +1,56 @@
+# nav2_amcl 定位参数（对应 RPLIDAR A2：10 Hz、12 m 量程）
+#
+# 前提：
+#   map_server 已提供 /map；
+#   TF 中 odom -> base_footprint 由 EKF 发布；
+#   map -> odom 由本节点在收到初始位姿后发布（slam_toolbox 必须停止）。
+amcl:
+  ros__parameters:
+    base_frame_id: base_footprint
+    odom_frame_id: odom
+    global_frame_id: map
+    scan_topic: scan
+    map_topic: map
+
+    # 激光模型：室内结构化环境用似然场
+    laser_model_type: likelihood_field
+    laser_min_range: 0.15
+    laser_max_range: 12.0
+    max_beams: 60
+    laser_likelihood_max_dist: 2.0
+    sigma_hit: 0.2
+    z_hit: 0.5
+    z_short: 0.05
+    z_max: 0.05
+    z_rand: 0.5
+    lambda_short: 0.1
+    do_beamskip: false
+    beam_skip_distance: 0.5
+    beam_skip_threshold: 0.3
+    beam_skip_error_threshold: 0.9
+
+    # 粒子数与更新阈值：雷达 10 Hz，按 0.1 m / 0.1 rad 触发更新
+    min_particles: 500
+    max_particles: 3000
+    pf_err: 0.05
+    pf_z: 0.99
+    resample_interval: 1
+    recovery_alpha_slow: 0.0
+    recovery_alpha_fast: 0.0
+    update_min_d: 0.1
+    update_min_a: 0.1
+    transform_tolerance: 0.5
+    tf_broadcast: true
+    save_pose_rate: 0.5
+
+    robot_model_type: nav2_amcl::DifferentialMotionModel
+    alpha1: 0.2
+    alpha2: 0.2
+    alpha3: 0.2
+    alpha4: 0.2
+    alpha5: 0.2
+
+    # 初始位姿由 RViz 的 "2D Pose Estimate" 或 /initialpose 话题给出
+    set_initial_pose: false
+    always_reset_initial_pose: false
+    first_map_only: false

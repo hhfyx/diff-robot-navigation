@@ -1,0 +1,27 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>diffbot_control</name>
+  <version>0.1.0</version>
+  <description>
+    两轮差速底盘 ros2_control 硬件接口。
+    仿真：DiffBotSystem 直接读写 Gazebo 关节，并在硬件接口层统一“前进为正”的
+    关节符号约定（右轮 URDF 轴为 (0,-1,0)，在此处取反）。
+    实车：DiffBotSerialSystem 为串口底盘接口骨架，未实现。
+  </description>
+  <maintainer email="hhf@example.com">hhf</maintainer>
+  <license>Apache-2.0</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <depend>hardware_interface</depend>
+  <depend>pluginlib</depend>
+  <depend>rclcpp</depend>
+  <depend>rclcpp_lifecycle</depend>
+  <depend>gazebo_dev</depend>
+  <depend>gazebo_ros2_control</depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>

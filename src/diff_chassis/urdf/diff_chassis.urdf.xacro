@@ -2,7 +2,7 @@
 <!--
   两轮差速移动机器人 URDF (xacro)
   由 SolidWorks 导出的 diff_chassis.orig.urdf 迁移而来，主要改动：
-    1. 新增 base_footprint（地面投影坐标系），z 相对 base_link = -0.063 m
+    1. 新增 base_footprint（地面投影坐标系），位于 base_link 下方 0.063 m
     2. 为两个 continuous 关节补 limit 与 dynamics（阻尼/摩擦）
     3. 新增纯几何 collision（原模型用高面数 STL，仿真很慢）
     4. 新增 Gazebo 差速驱动插件与轮地摩擦参数
@@ -38,6 +38,29 @@
 
   <xacro:arg name="use_gazebo" default="false"/>
   <xacro:arg name="use_gui"    default="true"/>
+  <!--
+    底盘驱动分支（只在 use_gazebo:=true 时生效）：
+      use_ros2_control:=true   controller_manager + diff_drive_controller
+                               + joint_state_broadcaster + gazebo_ros2_control
+                               + diffbot_control/DiffBotSystem（右轮在此取反）
+      use_ros2_control:=false  旧方案 gazebo_ros_diff_drive + gazebo_ros_joint_state_publisher
+                               仅用于与历史数据对照 / 回退，不代表文档约定
+  -->
+  <xacro:arg name="use_ros2_control" default="true"/>
+  <xacro:arg name="ros2_control_params"
+              default="$(find diff_chassis_description)/config/ros2_control.yaml"/>
+
+  <!--
+    规格书约定：右轮关节物理轴为 (0,-1,0)，前进方向在控制器/硬件接口层取反。
+    ros2_control 分支用文档约定；旧 gazebo_ros_diff_drive 分支没有取反能力，
+    只能保留当年实测时的 (0,1,0)，否则旧路径会直接反向。
+  -->
+  <xacro:if value="$(arg use_ros2_control)">
+    <xacro:property name="right_wheel_axis" value="0 -1 0"/>
+  </xacro:if>
+  <xacro:unless value="$(arg use_ros2_control)">
+    <xacro:property name="right_wheel_axis" value="0 1 0"/>
+  </xacro:unless>
 
   <!-- ==================== 材质 ==================== -->
   <material name="white">
@@ -57,7 +80,8 @@
   <link name="base_footprint"/>
 
   <joint name="base_footprint_joint" type="fixed">
-    <origin xyz="0 0 ${-wheel_radius}" rpy="0 0 0"/>
+    <!-- base_footprint 在地面，base_link（轮轴心）在其上方一个轮半径 -->
+    <origin xyz="0 0 ${wheel_radius}" rpy="0 0 0"/>
     <parent link="base_footprint"/>
     <child  link="base_link"/>
   </joint>
@@ -79,17 +103,63 @@
       <material name="aluminum"/>
     </visual>
 
-    <!-- 碰撞用简化盒体：车体外廓 440x440，从 z=-0.02 到 0.446 -->
-    <collision>
-      <origin xyz="0 0 0.213" rpy="0 0 0"/>
+    <!--
+      碰撞体按 base_link.STL 网格逐高度切片实测的「底板 + 4 根立柱 + 顶板」开放车架建模，
+      取代原先 0.440x0.440x0.466 的单一实心盒。
+      原因：雷达扫描面在 base_link z≈0.272，实心盒会把雷达完全包住，
+            导致 Gazebo 射线打在盒内壁上，后方/侧后 204° 自遮挡并污染地图。
+      网格实测值（z 为相对 base_link）：
+        底板 z∈[0.030,0.080]，footprint 0.440 x 0.418
+        立柱 4 根，截面 0.020 x 0.020，中心 (±0.140, ±0.070)，z∈[0.030,0.428]
+             距雷达 (0.18861,0.010699,0.272)：
+               前左 0.077 m、前右 0.094 m —— 小于 range_min 0.15 m，不产生回波
+               后左 0.334 m、后右 0.338 m —— 在量程内，会形成各约 5° 的真实遮挡
+             这是实车车架立柱本就会挡的角度，不是建模问题
+        顶板 z∈[0.428,0.446]，footprint 0.440 x 0.440
+      扫描面 z=0.272 处除 4 根立柱外没有任何碰撞体，视野由 156° 恢复到约 350°。
+      支撑仍由两驱动轮(z=0, r=0.063)与两万向球(z=-0.0315, r=0.0315)承担，
+      底板下表面在地面以上 0.093 m，不参与触地，pitch/roll 不受影响。
+    -->
+    <collision name="collision_bottom_plate">
+      <origin xyz="0 0 0.055" rpy="0 0 0"/>
       <geometry>
-        <box size="0.440 0.440 0.466"/>
+        <box size="0.440 0.418 0.050"/>
+      </geometry>
+    </collision>
+    <collision name="collision_top_plate">
+      <origin xyz="0 0 0.437" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.440 0.440 0.018"/>
+      </geometry>
+    </collision>
+    <collision name="collision_post_front_left">
+      <origin xyz="0.140 0.070 0.229" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.020 0.020 0.398"/>
+      </geometry>
+    </collision>
+    <collision name="collision_post_front_right">
+      <origin xyz="0.140 -0.070 0.229" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.020 0.020 0.398"/>
+      </geometry>
+    </collision>
+    <collision name="collision_post_rear_left">
+      <origin xyz="-0.140 0.070 0.229" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.020 0.020 0.398"/>
+      </geometry>
+    </collision>
+    <collision name="collision_post_rear_right">
+      <origin xyz="-0.140 -0.070 0.229" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.020 0.020 0.398"/>
       </geometry>
     </collision>
   </link>
 
   <!-- ==================== 驱动轮宏 ==================== -->
-  <xacro:macro name="wheel" params="side sign">
+  <xacro:macro name="wheel" params="side sign axis">
     <link name="${side}_wheel_link">
       <inertial>
         <origin xyz="0 ${sign*0.21082} -9.993E-06" rpy="0 0 0"/>
@@ -116,16 +186,18 @@
     </link>
 
     <!--
-      注意：右轮 axis 为 (0,-1,0)，左轮为 (0,1,0)
-      这是 SolidWorks 导出的结果，本身可行，但 diff_drive_controller
-      默认假定两轮同向。若发现给正速度时两轮反向转，
-      在 ros2_control 硬件接口层对右轮取反，不要改这里。
+      轮关节轴按实车/规格书约定：左轮 (0,1,0)，右轮 (0,-1,0)。
+      右轮轴为负意味着“正角速度 = 后退”，统一约定由驱动层处理：
+        - ros2_control 分支：diffbot_control/DiffBotSystem 在硬件接口层对右轮取反；
+        - 旧的 gazebo_ros_diff_drive 分支没有取反能力，会把右轮轴退回 (0,1,0)，
+          仅为复现历史基线，不代表正确建模。
+      实车固件若右轮电机方向相反，同样在硬件接口/固件层取反，不要改这里。
     -->
     <joint name="${side}_wheel_joint" type="continuous">
       <origin xyz="0 0 0" rpy="0 0 0"/>
       <parent link="base_link"/>
       <child  link="${side}_wheel_link"/>
-      <axis xyz="0 ${sign} 0"/>
+      <axis xyz="${axis}"/>
       <limit effort="10.0" velocity="10.0"/>
       <dynamics damping="0.1" friction="0.0"/>
     </joint>
@@ -134,19 +206,19 @@
       <gazebo reference="${side}_wheel_link">
         <mu1>0.8</mu1>
         <mu2>0.8</mu2>
-        <kp>1000000.0</kp>
+        <kp>1000000000000.0</kp>
         <kd>1.0</kd>
-        <minDepth>0.001</minDepth>
-        <maxVel>0.1</maxVel>
+        <minDepth>0.0</minDepth>
+        <maxVel>0.01</maxVel>
         <material>Gazebo/DarkGrey</material>
       </gazebo>
     </xacro:if>
   </xacro:macro>
 
-  <xacro:wheel side="left"  sign="1"/>
-  <xacro:wheel side="right" sign="-1"/>
+  <xacro:wheel side="left"  sign="1"  axis="0 1 0"/>
+  <xacro:wheel side="right" sign="-1" axis="${right_wheel_axis}"/>
 
-  <!-- ==================== 万向支撑轮（纯视觉，无物理） ==================== -->
+  <!-- ==================== 万向支撑轮 ==================== -->
   <link name="caster_front_link">
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0"/>
@@ -155,6 +227,13 @@
       </geometry>
       <material name="dark_gray"/>
     </visual>
+    <!-- 球体 collision：落地后与两驱动轮共同支撑车体 -->
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <sphere radius="0.0315"/>
+      </geometry>
+    </collision>
     <inertial>
       <mass value="0.05"/>
       <inertia ixx="1e-5" ixy="0" ixz="0" iyy="1e-5" iyz="0" izz="1e-5"/>
@@ -165,6 +244,14 @@
     <parent link="base_link"/>
     <child  link="caster_front_link"/>
   </joint>
+  <xacro:if value="$(arg use_gazebo)">
+    <!-- 固定球体无法滚动，只能滑动；给低摩擦避免它当滑橇拖住车体 -->
+    <gazebo reference="caster_front_link">
+      <mu1>0.01</mu1>
+      <mu2>0.01</mu2>
+      <material>Gazebo/DarkGrey</material>
+    </gazebo>
+  </xacro:if>
 
   <link name="caster_rear_link">
     <visual>
@@ -174,6 +261,13 @@
       </geometry>
       <material name="dark_gray"/>
     </visual>
+    <!-- 球体 collision：落地后与两驱动轮共同支撑车体 -->
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <sphere radius="0.0315"/>
+      </geometry>
+    </collision>
     <inertial>
       <mass value="0.05"/>
       <inertia ixx="1e-5" ixy="0" ixz="0" iyy="1e-5" iyz="0" izz="1e-5"/>
@@ -184,6 +278,13 @@
     <parent link="base_link"/>
     <child  link="caster_rear_link"/>
   </joint>
+  <xacro:if value="$(arg use_gazebo)">
+    <gazebo reference="caster_rear_link">
+      <mu1>0.01</mu1>
+      <mu2>0.01</mu2>
+      <material>Gazebo/DarkGrey</material>
+    </gazebo>
+  </xacro:if>
 
   <!-- ==================== 激光雷达 ==================== -->
   <link name="lidar_link">
@@ -265,10 +366,17 @@
 
   <!-- ==================== Gazebo 差速驱动 ==================== -->
   <xacro:if value="$(arg use_gazebo)">
+
+    <!-- ========== 旧方案（回退/对照分支）==========
+         gazebo_ros_diff_drive + gazebo_ros_joint_state_publisher。
+         只有在 use_ros2_control:=false 时才启用。 -->
+    <xacro:unless value="$(arg use_ros2_control)">
     <gazebo>
       <plugin filename="libgazebo_ros_diff_drive.so" name="diff_drive">
         <ros>
           <namespace>/</namespace>
+          <!-- 规格书 4.3 约定轮式里程计话题为 /wheel/odom，与实车底盘节点保持一致 -->
+          <remapping>odom:=wheel/odom</remapping>
         </ros>
         <update_rate>50</update_rate>
         <left_joint>left_wheel_joint</left_joint>
@@ -277,24 +385,88 @@
         <wheel_diameter>${2*wheel_radius}</wheel_diameter>
         <max_wheel_torque>10</max_wheel_torque>
         <max_wheel_acceleration>2.0</max_wheel_acceleration>
-        <command_topic>cmd_vel</command_topic>
-        <odometry_topic>odom</odometry_topic>
+        <!-- 默认话题：订阅 cmd_vel，发布 odom（ROS 1 的 command_topic/odometry_topic 在 ROS 2 中不存在） -->
         <odometry_frame>odom</odometry_frame>
         <robot_base_frame>base_footprint</robot_base_frame>
-        <!-- 关键：不要发布 odom TF，交给 EKF -->
+        <publish_odom>true</publish_odom>
+        <!--
+          仿真里程计位姿取 world（1=WORLD，0=ENCODER）：轮地滑移下编码器积分
+          会与真实位姿偏离。注意 twist 仍由轮速计算，静止时轮子接触抖动会让
+          它带约 6 mm/s 的假速度，EKF 会把这点积成缓慢漂移。
+          实车无此字段，/wheel/odom 由底盘节点发布。
+        -->
+        <odometry_source>1</odometry_source>
+        <!--
+          odom -> base_footprint 只允许一个发布者（规格书 4.4 节铁律）。
+          现由 robot_localization 的 ekf_node 独占发布，
+          插件这里必须保持 false，否则 /tf 会出现两个源。
+        -->
         <publish_odom_tf>false</publish_odom_tf>
         <publish_wheel_tf>false</publish_wheel_tf>
       </plugin>
 
-      <plugin filename="libgazebo_ros_p3d.so" name="p3d">
-        <ros><namespace>/</namespace></ros>
-        <body_name>base_link</body_name>
-        <frame_name>odom</frame_name>
+      <!-- 轮关节状态：给 robot_state_publisher 提供 /joint_states -->
+      <plugin filename="libgazebo_ros_joint_state_publisher.so" name="joint_state_publisher">
+        <ros>
+          <namespace>/</namespace>
+          <remapping>~/out:=joint_states</remapping>
+        </ros>
         <update_rate>50</update_rate>
-        <gaussian_noise>0.001</gaussian_noise>
-        <topic_name>ground_truth/odom</topic_name>
+        <joint_name>left_wheel_joint</joint_name>
+        <joint_name>right_wheel_joint</joint_name>
       </plugin>
     </gazebo>
+    </xacro:unless>
+
+    <!-- ========== ros2_control 方案（默认）==========
+         Gazebo 侧只挂 gazebo_ros2_control 硬件插件；驱动与关节状态由
+         controller_manager 里的 diff_drive_controller / joint_state_broadcaster 负责，
+         因此这里不再出现 gazebo_ros_diff_drive 与 gazebo_ros_joint_state_publisher。 -->
+    <xacro:if value="$(arg use_ros2_control)">
+    <gazebo>
+      <plugin filename="libgazebo_ros2_control.so" name="gazebo_ros2_control">
+        <ros>
+          <!-- diff_drive_controller 的 ~/odom 统一改名成规格书约定的 /wheel/odom，
+               这样 EKF 的输入话题在两种驱动分支下完全一致。
+               具体落在 /controller_manager/odom 还是 /diff_drive_controller/odom
+               取决于 ros2_control 版本，三条规则同时写上，未命中的无副作用。 -->
+          <remapping>odom:=wheel/odom</remapping>
+          <remapping>/controller_manager/odom:=/wheel/odom</remapping>
+          <remapping>/diff_drive_controller/odom:=/wheel/odom</remapping>
+          <!-- diff_drive_controller（use_stamped_vel=false）订阅 ~/cmd_vel_unstamped，
+               改回全栈约定的 /cmd_vel，让 Nav2 velocity_smoother / 遥控直接可用。
+               注意：remap 规则按完全限定名匹配，必须写绝对名。 -->
+          <remapping>/diff_drive_controller/cmd_vel_unstamped:=/cmd_vel</remapping>
+        </ros>
+        <parameters>$(arg ros2_control_params)</parameters>
+      </plugin>
+    </gazebo>
+
+    <ros2_control name="DiffBotSystem" type="system">
+      <hardware>
+        <!-- 自定义硬件接口：Gazebo 关节读写 + 右轮符号归一化 -->
+        <plugin>diffbot_control/DiffBotSystem</plugin>
+      </hardware>
+      <joint name="left_wheel_joint">
+        <command_interface name="velocity">
+          <param name="min">-10</param>
+          <param name="max">10</param>
+        </command_interface>
+        <state_interface name="position"/>
+        <state_interface name="velocity"/>
+      </joint>
+      <joint name="right_wheel_joint">
+        <!-- 右轮物理轴 (0,-1,0)：位置/速度/指令都在硬件接口层取反 -->
+        <param name="invert">true</param>
+        <command_interface name="velocity">
+          <param name="min">-10</param>
+          <param name="max">10</param>
+        </command_interface>
+        <state_interface name="position"/>
+        <state_interface name="velocity"/>
+      </joint>
+    </ros2_control>
+    </xacro:if>
 
     <!-- 激光雷达传感器 -->
     <gazebo reference="lidar_link">

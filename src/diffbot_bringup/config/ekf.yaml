@@ -1,0 +1,61 @@
+# robot_localization EKF 配置（仿真 / 实车共用）
+#
+# 职责（规格书 4.4 节）：
+#   odom -> base_footprint 的 TF 只由本节点发布；
+#   差速插件 / 底盘节点的 publish_odom_tf / enable_odom_tf 必须为 false。
+#
+# 输入：
+#   /wheel/odom  nav_msgs/Odometry  50 Hz（仿真中由 gazebo_ros_diff_drive 重映射而来）
+#   /imu/data    sensor_msgs/Imu    100 Hz
+# 输出：
+#   /odometry/filtered  nav_msgs/Odometry  50 Hz
+#
+# 15 位布尔顺序（规格书坑 5，写错会直接发散）：
+#   [x, y, z, roll, pitch, yaw, vx, vy, vz, vroll, vpitch, vyaw, ax, ay, az]
+ekf_filter_node:
+  ros__parameters:
+    # 仿真里 /clock 只有 10 Hz，ROS 2 定时器实际最多 10 Hz；
+    # 这里与仿真时钟对齐，避免 robot_localization 报 "Frequency too low"。
+    # 实车（/clock 100 Hz 或使用系统时钟）应改回 50.0。
+    frequency: 10.0
+    sensor_timeout: 0.2
+    two_d_mode: true
+    print_diagnostics: true
+    debug: false
+
+    map_frame: map
+    odom_frame: odom
+    base_link_frame: base_footprint
+    # world_frame 与 odom_frame 一致时，本节点发布 odom -> base_footprint
+    world_frame: odom
+    publish_tf: true
+    transform_time_offset: 0.0
+    transform_timeout: 0.0
+
+    # 轮式里程计：只信 vx 与 vyaw（vyaw 是第 12 位，不是第 15 位）
+    odom0: /wheel/odom
+    odom0_config: [false, false, false,
+                   false, false, false,
+                   true,  false, false,
+                   false, false, true,
+                   false, false, false]
+    odom0_queue_size: 10
+    odom0_nodelay: false
+    odom0_differential: false
+    odom0_relative: false
+
+    # IMU：同样只信 vyaw；orientation / 加速度不参与融合
+    imu0: /imu/data
+    imu0_config: [false, false, false,
+                  false, false, false,
+                  false, false, false,
+                  false, false, true,
+                  false, false, false]
+    imu0_queue_size: 20
+    imu0_nodelay: false
+    imu0_differential: false
+    imu0_relative: false
+    imu0_remove_gravitational_acceleration: true
+
+    use_control: false
+    dynamic_process_noise_covariance: true

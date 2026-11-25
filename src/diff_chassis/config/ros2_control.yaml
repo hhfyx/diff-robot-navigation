@@ -1,0 +1,59 @@
+# ros2_control 控制器配置（仿真与实车共用，最终组合）
+#
+# 该文件由 gazebo_ros2_control 的 <parameters> 标签加载，controller_manager
+# 节点就在 Gazebo 插件进程内。控制器：
+#   joint_state_broadcaster  -> /joint_states（唯一发布者，替代 gazebo_ros_joint_state_publisher）
+#   diff_drive_controller    -> 订阅 /cmd_vel，发布 /wheel/odom（话题名见 launch 里的 remap）
+#
+# 铁律（规格书 4.4 节）：
+#   enable_odom_tf 必须为 false —— odom -> base_footprint 只由 EKF 发布。
+controller_manager:
+  ros__parameters:
+    update_rate: 100  # Hz
+    use_sim_time: true
+
+    joint_state_broadcaster:
+      type: joint_state_broadcaster/JointStateBroadcaster
+
+    diff_drive_controller:
+      type: diff_drive_controller/DiffDriveController
+
+diff_drive_controller:
+  ros__parameters:
+    left_wheel_names: ["left_wheel_joint"]
+    right_wheel_names: ["right_wheel_joint"]
+
+    # 与 URDF 中的 xacro 属性一致：网格实测 126 mm 轮、422.3 mm 轮距
+    wheel_separation: 0.4223
+    wheel_radius: 0.063
+
+    wheel_separation_multiplier: 1.0
+    left_wheel_radius_multiplier: 1.0
+    right_wheel_radius_multiplier: 1.0
+
+    publish_rate: 50.0
+    odom_frame_id: odom
+    base_frame_id: base_footprint
+    pose_covariance_diagonal: [0.001, 0.001, 0.0, 0.0, 0.0, 0.01]
+    twist_covariance_diagonal: [0.001, 0.0, 0.0, 0.0, 0.0, 0.01]
+
+    # 用关节位置差分算里程计（仿真里轮速抖动比速度项小），
+    # 不再依赖 gazebo_ros_diff_drive 的 odometry_source=WORLD。
+    open_loop: false
+    position_feedback: true
+    enable_odom_tf: false  # 只允许 EKF 发布 odom -> base_footprint
+
+    cmd_vel_timeout: 0.5
+    use_stamped_vel: false
+    velocity_rolling_window_size: 10
+
+    # 仿真电机可瞬时响应；为与旧 gazebo_ros_diff_drive 基线（无加减速限制）对齐，
+    # 不启用加速度限制，只保留速度限幅。
+    linear.x.has_velocity_limits: true
+    linear.x.has_acceleration_limits: false
+    linear.x.max_velocity: 0.4
+    linear.x.min_velocity: -0.4
+    angular.z.has_velocity_limits: true
+    angular.z.has_acceleration_limits: false
+    angular.z.max_velocity: 1.5
+    angular.z.min_velocity: -1.5

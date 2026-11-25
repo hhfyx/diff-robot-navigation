@@ -15,10 +15,13 @@ from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import (
     DeclareLaunchArgument,
+    ExecuteProcess,
     IncludeLaunchDescription,
+    RegisterEventHandler,
     SetEnvironmentVariable,
 )
 from launch.conditions import IfCondition
+from launch.event_handlers import OnProcessExit
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import Command, LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
@@ -35,6 +38,7 @@ def generate_launch_description():
     use_sim_time = LaunchConfiguration("use_sim_time")
     gui = LaunchConfiguration("gui")
     verbose = LaunchConfiguration("verbose")
+    use_ros2_control = LaunchConfiguration("use_ros2_control")
 
     # 让 Gazebo 能找到 package:// 里的网格
     set_model_path = SetEnvironmentVariable(
@@ -43,7 +47,8 @@ def generate_launch_description():
     )
 
     robot_description = ParameterValue(
-        Command(["xacro ", xacro_file, " use_gazebo:=true"]),
+        Command(["xacro ", xacro_file, " use_gazebo:=true",
+                 " use_ros2_control:=", use_ros2_control]),
         value_type=str,
     )
 
@@ -77,6 +82,22 @@ def generate_launch_description():
         output="screen",
     )
 
+    # ros2_control 分支：spawn 完成后依次激活 joint_state_broadcaster 与 diff_drive_controller。
+    # 与 gazebo_ros_diff_drive 分支互斥（use_ros2_control:=false 时不执行）。
+    load_joint_state_broadcaster = ExecuteProcess(
+        cmd=["ros2", "control", "load_controller", "--set-state", "active",
+             "joint_state_broadcaster"],
+        output="screen",
+        condition=IfCondition(use_ros2_control),
+    )
+
+    load_diff_drive_controller = ExecuteProcess(
+        cmd=["ros2", "control", "load_controller", "--set-state", "active",
+             "diff_drive_controller"],
+        output="screen",
+        condition=IfCondition(use_ros2_control),
+    )
+
     return LaunchDescription([
         DeclareLaunchArgument(
             "world", default_value="",
@@ -90,6 +111,10 @@ def generate_launch_description():
         DeclareLaunchArgument(
             "verbose", default_value="false",
             description="Gazebo 是否输出详细日志"),
+        DeclareLaunchArgument(
+            "use_ros2_control", default_value="true",
+            description="true=controller_manager/diff_drive_controller；"
+                        "false=旧 gazebo_ros_diff_drive 分支（回退/对照用）"),
 
         set_model_path,
         gzserver,
@@ -107,4 +132,17 @@ def generate_launch_description():
         ),
 
         spawn_entity,
+
+        RegisterEventHandler(
+            event_handler=OnProcessExit(
+                target_action=spawn_entity,
+                on_exit=[load_joint_state_broadcaster],
+            )
+        ),
+        RegisterEventHandler(
+            event_handler=OnProcessExit(
+                target_action=load_joint_state_broadcaster,
+                on_exit=[load_diff_drive_controller],
+            )
+        ),
     ])
